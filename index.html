@@ -343,10 +343,31 @@ function buildQueue(){
   }
   learn.sort((a,b)=>a.review.due-b.review.due);
   rev.sort((a,b)=>a.review.due-b.review.due);
+  const ord=interleavedOrder();          // fixed global position per card
+  neu.sort((a,b)=>(ord.get(a.id)??0)-(ord.get(b.id)??0));
   const newLeft=Math.max(0, state.settings.newPerDay - state.day.newDone);
   return { learn, rev, newCards:neu.slice(0,newLeft), counts:{
     learn:learn.length, rev:rev.length, newAvail:neu.length, newLeft
   }};
+}
+// Assign each card a STABLE position in a round-robin over requirements, so new
+// cards are introduced as Algebra → Linear Algebra → Coding → … → NIST → Algebra → …
+// The position is fixed (not recomputed on the shrinking set), so consuming one
+// card advances to the next requirement instead of restarting at Algebra.
+let _ordCache=null, _ordLen=-1;
+function interleavedOrder(){
+  if(_ordCache && _ordLen===state.cards.length) return _ordCache;
+  const groups=new Map();
+  for(const c of state.cards){
+    if(!groups.has(c.requirement_id)) groups.set(c.requirement_id,[]);
+    groups.get(c.requirement_id).push(c.id);
+  }
+  const lists=[...groups.keys()].sort().map(k=>groups.get(k).slice());
+  const order=new Map(); let idx=0, added=true;
+  while(added){ added=false;
+    for(const lst of lists){ if(lst.length){ order.set(lst.shift(), idx++); added=true; } }
+  }
+  _ordCache=order; _ordLen=state.cards.length; return order;
 }
 function nextCard(){
   const q=buildQueue();
