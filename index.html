@@ -230,6 +230,7 @@ function initState(){
     version:1,
     deck:SEED.deck,
     requirements:SEED.requirements,
+    shuffleSeed:Math.floor(Math.random()*1e9),  // stable per-deck shuffle; new seed on reset
     settings:{ newPerDay:20, theme:"light" },
     day:{ date:todayKey(now), newDone:0, reviews:0 },
     cards:SEED.cards.map(c=>({
@@ -354,20 +355,31 @@ function buildQueue(){
 // cards are introduced as Algebra → Linear Algebra → Coding → … → NIST → Algebra → …
 // The position is fixed (not recomputed on the shrinking set), so consuming one
 // card advances to the next requirement instead of restarting at Algebra.
-let _ordCache=null, _ordLen=-1;
+// deterministic hash -> stable pseudo-random key per (seed, cardId)
+function hashKey(str){
+  let h=2166136261>>>0;
+  for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619)>>>0; }
+  return h>>>0;
+}
+let _ordCache=null, _ordKey="";
 function interleavedOrder(){
-  if(_ordCache && _ordLen===state.cards.length) return _ordCache;
+  const seed=state.shuffleSeed||0;
+  const key=state.cards.length+":"+seed;
+  if(_ordCache && _ordKey===key) return _ordCache;
   const groups=new Map();
   for(const c of state.cards){
     if(!groups.has(c.requirement_id)) groups.set(c.requirement_id,[]);
     groups.get(c.requirement_id).push(c.id);
   }
-  const lists=[...groups.keys()].sort().map(k=>groups.get(k).slice());
+  // shuffle WITHIN each requirement using the stable seeded hash, then round-robin ACROSS requirements
+  const lists=[...groups.keys()].sort().map(k=>
+    groups.get(k).slice().sort((a,b)=>hashKey(seed+":"+a)-hashKey(seed+":"+b))
+  );
   const order=new Map(); let idx=0, added=true;
   while(added){ added=false;
     for(const lst of lists){ if(lst.length){ order.set(lst.shift(), idx++); added=true; } }
   }
-  _ordCache=order; _ordLen=state.cards.length; return order;
+  _ordCache=order; _ordKey=key; return order;
 }
 function nextCard(){
   const q=buildQueue();
@@ -783,6 +795,7 @@ document.getElementById("themeBtn").onclick=()=>{
 };
 
 /* ---------- boot ---------- */
+if(state.shuffleSeed==null){ state.shuffleSeed=Math.floor(Math.random()*1e9); saveState(); }
 applyTheme(); rollDay(); renderTabs(); render();
 </script>
 </body>
